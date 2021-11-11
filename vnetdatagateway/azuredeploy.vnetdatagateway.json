@@ -110,7 +110,9 @@
     "functions": [],
     "variables": {
         "vnetname": "vnet-datagwy",
+        "dataVnetname": "vnet-dataVnet",
         "privateEndpointName": "pep-sql",
+        "dataPrivateEndpointName": "pep-dataSql",
         "privateLinkServiceId": "sqlServer",
         "privateDnsZoneName": "privatelink.database.windows.net",
         "privateEndpointGroupName": "sqlServer",
@@ -118,10 +120,14 @@
         "privateDnsZoneGroup": "[format('{0}/{1}PrivateDnsZoneGroup', variables('privateEndpointName'), variables('privateEndpointGroupName'))]",
         "sqlPrivateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateDnsZoneName'))]",
         "serverName": "sql-vnetgwydemoserver",
+        "dataSqlServerName": "sql-dataVnetServer",
         "sqlDBName": "sqldb-vnetgwydb",
+        "dataSqlDBName": "sqldb-dataVnetDb",
         "sqlSubnetName": "snet-sqlserver",
+        "dataSqlSubnetName": "snet-sqlserver",
         "vmSubnetName": "snet-onprmgwy",
         "vnetgwyNsg": "nsg-vnetGwy",
+        "dataVnetNsg": "nsg-dataVnet",
         "vmStorageAccountName": "stonprmdgwyvm",
         //"vmStorageAccountName": "[format('stonprmdgwyvm{0}',uniqueString(resourceGroup().id))]",
         "vmNetworkSecurityGroupName": "nsg-vmOnPremGwy",
@@ -217,10 +223,31 @@
             ]
         },
         {
+            "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+            "apiVersion": "2020-05-01",
+            "name": "[format('{0}/{1}', variables('vnetname'), format('{0}-{1}', variables('vnetname'), variables('dataVnetname')))]",
+            "properties": {
+                "allowVirtualNetworkAccess": true,
+                "allowForwardedTraffic": false,
+                "allowGatewayTransit": false,
+                "useRemoteGateways": false,
+                "remoteVirtualNetwork": {
+                    "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('dataVnetname'))]"
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('dataVnetname'))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetname'))]"
+            ]
+        },
+        {
             "type": "Microsoft.Network/privateEndpoints",
             "apiVersion": "2020-07-01",
             "name": "[variables('privateEndpointName')]",
             "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers',variables('serverName'))]"
+            ],
             "properties": {
                 "privateLinkServiceConnections": [
                     {
@@ -405,6 +432,109 @@
             "dependsOn": [
                 "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', variables('vmStorageAccountName'))]"
+            ]
+        },
+
+        {
+            "type": "Microsoft.Sql/servers",
+            "apiVersion": "2020-02-02-preview",
+            "name": "[variables('dataSqlServerName')]",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "administratorLogin": "[parameters('administratorLogin')]",
+                "administratorLoginPassword": "[parameters('administratorLoginPassword')]"
+            },
+            "resources": [
+                {
+                    "type": "databases",
+                    "apiVersion": "2020-08-01-preview",
+                    "name": "[variables('dataSqlDbName')]",
+                    "location": "[resourceGroup().location]",
+                    "sku": {
+                        "name": "Standard",
+                        "tier": "Standard"
+                    },
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Sql/servers', concat(variables('dataSqlServerName')))]"
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "Microsoft.Network/privateEndpoints",
+            "apiVersion": "2020-07-01",
+            "name": "[variables('dataPrivateEndpointName')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers',variables('dataSqlServerName'))]"
+            ],
+            "properties": {
+                "privateLinkServiceConnections": [
+                    {
+                        "name": "[variables('dataPrivateEndpointName')]",
+                        "properties": {
+                            "privateLinkServiceId": "[resourceId('Microsoft.Sql/servers',variables('dataSqlServerName'))]",
+                            "groupIds": [
+                                "[variables('privateEndpointGroupName')]"
+                            ]
+                        }
+                    }
+                ],
+                "subnet": {
+                    "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('dataVnetName'), variables('dataSqlSubnetName'))]"
+                }
+            }
+        },
+        {
+            "name": "[variables('dataVnetNsg')]",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2020-11-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+            }
+        },
+        {
+            "name": "[variables('dataVnetName')]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2021-03-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "10.1.0.0/16"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[variables('dataSqlSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "10.1.1.0/24",
+                            "serviceEndpoints": [],
+                            "privateEndpointNetworkPolicies": "Disabled"
+                        }
+                    }
+                ]
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', variables('dataVnetNsg'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+            "apiVersion": "2020-05-01",
+            "name": "[format('{0}/{1}', variables('dataVnetname'), format('{0}-{1}', variables('dataVnetname'), variables('vnetname')))]",
+            "properties": {
+                "allowVirtualNetworkAccess": true,
+                "allowForwardedTraffic": false,
+                "allowGatewayTransit": false,
+                "useRemoteGateways": false,
+                "remoteVirtualNetwork": {
+                    "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetname'))]"
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('dataVnetname'))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetname'))]"
             ]
         }
     ],
